@@ -14,12 +14,16 @@ import pyarrow.parquet as pq
 PROJECT_ID = os.environ.get("GCP_PROJECT_ID")
 BUCKET = os.environ.get("GCP_GCS_BUCKET")
 
-dataset_file = "yellow_tripdata_2021-01.csv"
-dataset_url = f"https://s3.amazonaws.com/nyc-tlc/trip+data/{dataset_file}"
-path_to_local_home = os.environ.get("AIRFLOW_HOME", "/opt/airflow/")
-parquet_file = dataset_file.replace('.csv', '.parquet')
-BIGQUERY_DATASET = os.environ.get("BIGQUERY_DATASET", 'trips_data_all')
+AIRFLOW_HOME = f'{os.environ.get("AIRFLOW_HOME", "/opt/airflow/")}/'
+URL_PREFIX = 'https://nyc-tlc.s3.amazonaws.com/trip+data/'
+FILE_NAME = 'fhv_tripdata_{{ execution_date.strftime(\'%Y-%m\') }}'
+URL_TEMPLATE = URL_PREFIX + f'{FILE_NAME}.csv'
+OUTPUT_FILE_TEMPLATE = AIRFLOW_HOME + f'{FILE_NAME}'
 
+URL_PREFIX_ZONES = 'https://s3.amazonaws.com/nyc-tlc/misc/'
+ZONES_NAME = 'taxi+_zone_lookup'
+ZONES_URL = f'{URL_PREFIX_ZONES}{ZONES_NAME}.csv'
+ZONES_OUTPUT = AIRFLOW_HOME + ZONES_NAME
 
 def format_to_parquet(src_file):
     if not src_file.endswith('.csv'):
@@ -53,31 +57,31 @@ def upload_to_gcs(bucket, object_name, local_file):
 
 default_args = {
     "owner": "airflow",
-    "start_date": days_ago(1),
+    "start_date": "2019-01-01",
     "depends_on_past": False,
     "retries": 1,
 }
 
 # NOTE: DAG declaration - using a Context Manager (an implicit way)
 with DAG(
-    dag_id="data_ingestion_gcs_dag",
-    schedule_interval="@daily",
+    dag_id="data_ingestion_gcs_dag_v08",
+    schedule_interval="@monthly",
     default_args=default_args,
-    catchup=False,
-    max_active_runs=1,
+    catchup=True,
+    max_active_runs=3,
     tags=['dtc-de'],
 ) as dag:
 
     download_dataset_task = BashOperator(
         task_id="download_dataset_task",
-        bash_command=f"curl -sS {dataset_url} > {path_to_local_home}/{dataset_file}"
+        bash_command=f"curl -sSf {URL_TEMPLATE} > {OUTPUT_FILE_TEMPLATE}.csv"
     )
 
     format_to_parquet_task = PythonOperator(
         task_id="format_to_parquet_task",
         python_callable=format_to_parquet,
         op_kwargs={
-            "src_file": f"{path_to_local_home}/{dataset_file}",
+            "src_file": f"{OUTPUT_FILE_TEMPLATE}.csv",
         },
     )
 
@@ -87,24 +91,42 @@ with DAG(
         python_callable=upload_to_gcs,
         op_kwargs={
             "bucket": BUCKET,
-            "object_name": f"raw/{parquet_file}",
-            "local_file": f"{path_to_local_home}/{parquet_file}",
+            "object_name": f"raw/{FILE_NAME}.parquet",
+            "local_file": f"{OUTPUT_FILE_TEMPLATE}.parquet",
         },
     )
-
-    bigquery_external_table_task = BigQueryCreateExternalTableOperator(
-        task_id="bigquery_external_table_task",
-        table_resource={
-            "tableReference": {
-                "projectId": PROJECT_ID,
-                "datasetId": BIGQUERY_DATASET,
-                "tableId": "external_table",
-            },
-            "externalDataConfiguration": {
-                "sourceFormat": "PARQUET",
-                "sourceUris": [f"gs://{BUCKET}/raw/{parquet_file}"],
-            },
-        },
+    delete_files = BashOperator(
+        task_id="detete_files",
+        bash_command=f"rm {OUTPUT_FILE_TEMPLATE}.parquet {OUTPUT_FILE_TEMPLATE}.csv"
     )
 
-    download_dataset_task >> format_to_parquet_task >> local_to_gcs_task >> bigquery_external_table_task
+    # bigquery_external_table_task = BigQueryCreateExternalTableOperator(
+    #     task_id="bigquery_external_table_task",
+    #     table_resource={
+    #         "tableReference": {
+    #             "projectId": PROJECT_ID,
+    #             "datasetId": BIGQUERY_DATASET,
+    #             "tableId": "external_table",
+    #         },
+    #         "externalDataConfiguration": {
+    #             "sourceFormat": "PARQUET",
+    #             "sourceUris": [f"gs://{BUCKET}/raw/{parquet_file}"],
+    #         },
+    #     },
+    # )
+
+    download_dataset_task >> format_to_parquet_task >> local_to_gcs_task >> delete_files
+
+
+with DAG(
+    dag_id="data_ingestion_zones_v01",
+    schedule_interval="@once",
+    default_args=default_args,
+    catchup=False,
+    max_active_runs=3,
+    tags=['dtc-de'],
+) as dag:
+        download_dataset_task = BashOperator(
+        task_id="download_dataset_task",
+        bash_command=f"curl -sSf {ZONES_URL} > {ZONES_OUTPUT}"
+    )
