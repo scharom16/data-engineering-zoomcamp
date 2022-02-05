@@ -16,7 +16,7 @@ BUCKET = os.environ.get("GCP_GCS_BUCKET")
 
 AIRFLOW_HOME = f'{os.environ.get("AIRFLOW_HOME", "/opt/airflow/")}/'
 URL_PREFIX = 'https://nyc-tlc.s3.amazonaws.com/trip+data/'
-FILE_NAME = 'fhv_tripdata_{{ execution_date.strftime(\'%Y-%m\') }}'
+FILE_NAME = 'fhv_tripdata_{{execution_date.strftime(\'%Y-%m\')}}'
 URL_TEMPLATE = URL_PREFIX + f'{FILE_NAME}.csv'
 OUTPUT_FILE_TEMPLATE = AIRFLOW_HOME + f'{FILE_NAME}'
 
@@ -64,7 +64,7 @@ default_args = {
 
 # NOTE: DAG declaration - using a Context Manager (an implicit way)
 with DAG(
-    dag_id="data_ingestion_gcs_dag_v08",
+    dag_id="data_ingestion_gcs_dag_v01",
     schedule_interval="@monthly",
     default_args=default_args,
     catchup=True,
@@ -123,10 +123,31 @@ with DAG(
     schedule_interval="@once",
     default_args=default_args,
     catchup=False,
-    max_active_runs=3,
+    max_active_runs=1,
     tags=['dtc-de'],
 ) as dag:
-        download_dataset_task = BashOperator(
-        task_id="download_dataset_task",
-        bash_command=f"curl -sSf {ZONES_URL} > {ZONES_OUTPUT}"
+
+    download_zones_task = BashOperator(
+        task_id="download_zones_task",
+        bash_command=f"curl -sSf {ZONES_URL} > {ZONES_OUTPUT}.parquet"
     )
+
+    parquetize_zones_task = PythonOperator(
+        task_id="parquetize_zones_task",
+        python_callable=format_to_parquet,
+        op_kwargs={
+            "src_file": f"{ZONES_OUTPUT}.parquet",
+        }
+    )
+    
+    local_to_gcs_task = PythonOperator(
+        task_id="local_to_gcs_task",
+        python_callable=upload_to_gcs,
+        op_kwargs={
+            "bucket": BUCKET,
+            "object_name": f"raw/{ZONES_NAME}.parqeut",
+            "local_file": f"{ZONES_OUTPUT}.parquet",
+        }
+    )
+
+    download_zones_task >> parquetize_zones_task >> local_to_gcs_task
