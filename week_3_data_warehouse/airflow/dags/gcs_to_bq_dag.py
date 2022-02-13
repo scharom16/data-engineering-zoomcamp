@@ -82,6 +82,7 @@ with DAG(
                 SELECT * FROM {BIGQUERY_DATASET}.{colour}_{DATASET}_external_table;"
             )
 
+
         # Create a partitioned table from external table
         bq_create_partitioned_table_job = BigQueryInsertJobOperator(
             task_id=f"bq_create_{colour}_{DATASET}_partitioned_table_task",
