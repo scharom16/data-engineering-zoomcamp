@@ -13,7 +13,7 @@ path_to_local_home = os.environ.get("AIRFLOW_HOME", "/opt/airflow/")
 BIGQUERY_DATASET = os.environ.get("BIGQUERY_DATASET", 'trips_data_all')
 
 DATASET = "tripdata"
-COLOUR_RANGE = {'yellow': 'tpep_pickup_datetime', 'green': 'lpep_pickup_datetime'}
+COLOUR_RANGE = {'yellow': 'tpep_pickup_datetime', 'green': 'lpep_pickup_datetime', 'fhv':['dropoff_datetime', 'dispatching_base_num']}
 INPUT_PART = "raw"
 INPUT_FILETYPE = "parquet"
 
@@ -26,7 +26,7 @@ default_args = {
 
 # NOTE: DAG declaration - using a Context Manager (an implicit way)
 with DAG(
-    dag_id="gcs_2_bq_dag",
+    dag_id="gcs_2_bq_dag_v4",
     schedule_interval="@daily",
     default_args=default_args,
     catchup=False,
@@ -59,19 +59,27 @@ with DAG(
                 },
             },
         )
-        if colour == "yellow":
+
+        if colour == "green":
+            CREATE_BQ_TBL_QUERY = (
+                f"CREATE OR REPLACE TABLE {BIGQUERY_DATASET}.{colour}_{DATASET} \
+                PARTITION BY DATE({ds_col}) \
+                AS \
+                SELECT * EXCEPT (ehail_fee) FROM {BIGQUERY_DATASET}.{colour}_{DATASET}_external_table;"
+            )
+        if colour == 'yellow':
             CREATE_BQ_TBL_QUERY = (
                 f"CREATE OR REPLACE TABLE {BIGQUERY_DATASET}.{colour}_{DATASET} \
                 PARTITION BY DATE({ds_col}) \
                 AS \
                 SELECT * FROM {BIGQUERY_DATASET}.{colour}_{DATASET}_external_table;"
             )
-        else:
+        if colour == 'fhv'
             CREATE_BQ_TBL_QUERY = (
                 f"CREATE OR REPLACE TABLE {BIGQUERY_DATASET}.{colour}_{DATASET} \
-                PARTITION BY DATE({ds_col}) \
+                PARTITION BY DATE({ds_col[0]}) \
                 AS \
-                SELECT * EXCEPT (ehail_fee) FROM {BIGQUERY_DATASET}.{colour}_{DATASET}_external_table;"
+                SELECT * FROM {BIGQUERY_DATASET}.{colour}_{DATASET}_external_table;"
             )
 
         # Create a partitioned table from external table
