@@ -61,7 +61,7 @@ x-airflow-common:
     GOOGLE_APPLICATION_CREDENTIALS: /.google/credentials/google_credentials.json
     AIRFLOW_CONN_GOOGLE_CLOUD_DEFAULT: 'google-cloud-platform://?extra__google_cloud_platform__key_path=/.google/credentials/google_credentials.json'
     GCP_PROJECT_ID: 'dtc-de-course-338814'
-    GCP_GCS_BUCKET: 'dtc_data_lake_dtc-de-course-338814'
+    GCP_GCS_BUCKET: 'hello_world_dtc_data_lake_dtc-de-course-338814'
 
   volumes:
     - ./dags:/opt/airflow/dags
